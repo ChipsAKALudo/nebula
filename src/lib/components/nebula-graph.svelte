@@ -49,50 +49,59 @@
         book: '#ec4899' // pink
     };
 
-    // Component State
-    let activeNodeId = $state<string | null>(null);
-    let zoomLevel = $state(5); // Represents desired closeness (lower is closer)
-    let isFullscreen = $state(false);
-    let controlsRef: OrbitControls | undefined = $state(); // Ref for OrbitControls instance
+    console.log("Calculating initial node positions...");
+    const initialPositions: Record<string, [number, number, number]> = {};
+    graphData.nodes.forEach((node, i) => {
+        const angle = (i / graphData.nodes.length) * Math.PI * 2;
+        // Math.random() is only called ONCE per node here
+        const radius = 6 + Math.random() * 3; // Slightly larger base radius for better spread?
+        initialPositions[node.id] = [
+            Math.cos(angle) * radius,
+            Math.sin(angle) * radius,
+            (Math.random() - 0.5) * 6 // Slightly more depth variance?
+        ];
+    });
+    console.log("Initial positions calculated:", initialPositions);
 
-    // --- Context and Refs ---
-    // cameraRef is not needed now, useThrelte provides it
+    // Component State
+    let nodePositions = $state<Record<string, [number, number, number]>>(initialPositions);
+
+    // --- Other Component State ---
+    let activeNodeId = $state<string | null>(null);
+    let zoomLevel = $state(5);
+    let isFullscreen = $state(false);
+    let controlsRef: OrbitControls | undefined = $state();
     const { camera } = useThrelte(); // Get camera reactively
 
-    // Simple layout (same logic as React version)
-    const nodePositions = $derived(() => {
-        const positions: Record<string, [number, number, number]> = {};
-        graphData.nodes.forEach((node, i) => {
-            const angle = (i / graphData.nodes.length) * Math.PI * 2;
-            // Slightly increase radius variance and base
-            const radius = 4 + Math.random() * 3;
-            positions[node.id] = [
-                Math.cos(angle) * radius,
-                Math.sin(angle) * radius,
-                (Math.random() - 0.5) * 5 // Increase depth variance slightly
-            ];
-        });
-        return positions;
-    });
 
     // Sync activeNote prop with internal state
     $effect(() => {
         if (activeNote !== activeNodeId) {
             activeNodeId = activeNote;
             // Optionally focus immediately when prop changes
-            // if (activeNote) {
-            //   focusNode(activeNote);
-            // }
+            if (activeNote) {
+              focusNode(activeNote);
+            }
         }
     });
 
     // Focus on node logic
     function focusNode(nodeId: string | null) {
-        if (!nodeId || !controlsRef || !$camera) return; // Use reactive $camera
+        console.log('Focusing on node:', nodeId);
+        if (!nodeId) {
+            console.warn('No node ID provided to focus on.'); // Maybe remove this warning for null
+            return;
+        }
+        // Check reactive camera ($camera) exists via useThrelte()
+        if (!controlsRef || !$camera) {
+            console.warn('Focus aborted: Controls or Camera not ready.');
+            return;
+        }
 
-        const positionArray = nodePositions[nodeId];
+        const positionArray = nodePositions[nodeId]; // Use the state variable
         if (!positionArray) {
-            console.warn(`Node position not found for id: ${nodeId}`);
+            // This warning is important!
+            console.warn(`Node position not found for id: ${nodeId}. Available positions:`, Object.keys(nodePositions));
             return;
         }
 
@@ -107,7 +116,7 @@
         controlsRef.target.copy(targetPosition);
 
         // Calculate desired camera position (behind and slightly above the node)
-        const offset = new THREE.Vector3(0, 1, 3); // Adjust offset as needed
+        const offset = new THREE.Vector3(2, 1, 5); // Adjust offset as needed
         const desiredCamPos = targetPosition.clone().add(offset);
 
         // Set camera position directly (or animate it)
@@ -119,9 +128,16 @@
 
     // Effect to focus camera when activeNodeId changes *internally*
     // (e.g., by clicking)
+    // Make sure the effect syncing activeNote prop still works
     $effect(() => {
-        if (activeNodeId) {
-            focusNode(activeNodeId);
+        console.log("Prop sync effect: activeNote=", activeNote, "activeNodeId=", activeNodeId);
+        if (activeNote !== activeNodeId) {
+            activeNodeId = activeNote;
+            // Focus is now handled by the click or potentially the initial effect
+            // You might still want to call focusNode here if the prop changes *after* initial load
+            if (activeNote && Object.keys(nodePositions).length > 0) { // Ensure positions exist
+               focusNode(activeNote);
+            }
         }
     });
 
@@ -212,7 +228,6 @@
         activeNodeId = nodeId; // This will trigger the $effect to focus
         // }
     }
-
 </script>
 
 <div id="graph-container" class={`relative ${isFullscreen ? 'fixed inset-0 z-50 bg-background' : 'flex-1 h-full'}`}>
@@ -249,51 +264,47 @@
         </div>
     </div>
 
-    <Canvas>
-        <T.PerspectiveCamera makeDefault position={[0, 0, 15]} fov={60}>
-            <OrbitControls
-                    bind:ref={controlsRef}
-                    enableDamping={true}
-                    dampingFactor={0.05}
-                    rotateSpeed={0.5}
-                    minDistance={1.5}
-                    maxDistance={30}
-                    target={[0,0,0]}
-            />
-        </T.PerspectiveCamera>
+    <T.PerspectiveCamera makeDefault position={[0, 0, 15]} fov={60}>
+        <OrbitControls
+                bind:ref={controlsRef}
+                enableDamping={true}
+                dampingFactor={0.05}
+                rotateSpeed={0.5}
+                minDistance={1.5}
+                maxDistance={30}
+                target={[0,0,0]}
+        />
+    </T.PerspectiveCamera>
 
-        <T.AmbientLight intensity={0.6} />
-        <T.DirectionalLight position={[5, 10, 7]} intensity={1.2} castShadow shadow.mapSize={[2048, 2048]} />
-        <T.DirectionalLight position={[-5, -5, -2]} intensity={0.4} />
-        <Environment preset="city" background={false} />
+    <T.AmbientLight intensity={0.6} />
+    <T.DirectionalLight position={[5, 10, 7]} intensity={1.2} castShadow shadow.mapSize={[2048, 2048]} />
+    <T.DirectionalLight position={[-5, -5, -2]} intensity={0.4} />
+    <Environment preset="city" background={false} />
 
-        {#each graphData.links as link, i (link.source + '-' + link.target + '-' + i)}
-            <Link
-                    start={nodePositions[link.source]}
-                    end={nodePositions[link.target]}
-                    strength={link.value}
-            />
-        {/each}
+    {#each graphData.links as link, i (link.source + '-' + link.target + '-' + i)}
+        <Link
+                start={nodePositions[link.source]}
+                end={nodePositions[link.target]}
+                strength={link.value}
+        />
+    {/each}
 
-        {#each graphData.nodes as node (node.id)}
-            <Node
-                    id={node.id}
-                    position={nodePositions[node.id]}
-                    label={node.label}
-                    group={node.group}
-                    size={node.size}
-                    {groupColors}
-                    {activeNodeId}
-                    {handleNodeClick}
-            />
-        {/each}
+    {#each graphData.nodes as node (node.id)}
+        <Node
+                id={node.id}
+                position={nodePositions[node.id]}
+                label={node.label}
+                group={node.group}
+                size={node.size}
+                {groupColors}
+                {activeNodeId}
+                onNodeClick={handleNodeClick}  />
+    {/each}
 
-        <T.Mesh rotation.x={-Math.PI / 2} position.y={-5} receiveShadow>
-            <T.PlaneGeometry args={[50, 50]} />
-            <T.MeshStandardMaterial color="#333" roughness={0.8} metalness={0.1} />
-        </T.Mesh>
-
-    </Canvas>
+    <T.Mesh rotation.x={-Math.PI / 2} position.y={-5} receiveShadow>
+        <T.PlaneGeometry args={[50, 50]} />
+        <T.MeshStandardMaterial color="#333" roughness={0.8} metalness={0.1} />
+    </T.Mesh>
 
     {#if activeNodeDetails}
         {@const details = activeNodeDetails}
