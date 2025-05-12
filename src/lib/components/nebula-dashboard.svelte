@@ -1,11 +1,11 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import { browser } from '$app/environment'; // Import the browser check
+    import { Canvas, T, useThrelte } from '@threlte/core';
+
 
     import NebulaSidebar from '$lib/components/nebula-sidebar.svelte';
     import NebulaNoteEditor from '$lib/components/nebula-note-editor.svelte';
-    // Remove the static import of NebulaGraph
-    // import NebulaGraph from '$lib/components/nebula-graph.svelte';
 
     // Component state
     let activeNote = $state<string | null>(null);
@@ -36,7 +36,9 @@
             <NebulaNoteEditor {activeNote} />
 
             {#if NebulaGraphComponent}
-                <svelte:component this={NebulaGraphComponent} {activeNote} />
+                <Canvas>
+                    <svelte:component this={NebulaGraphComponent} {activeNote} />
+                </Canvas>
             {:else}
                 <div class="flex-1 h-full flex items-center justify-center bg-muted/20">
                     <p class="text-muted-foreground animate-pulse">Loading Graph...</p>
